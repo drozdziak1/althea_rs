@@ -74,7 +74,10 @@ impl Handler<Watch> for TrafficWatcher {
 ///
 /// This first time this is run, it will create the rules and then immediately read and zero them.
 /// (should return 0)
-pub fn watch<T: Read + Write>(mut babel: Babel<T>, neighbors: &[(LocalIdentity, String)]) -> Result<(), Error> {
+pub fn watch<T: Read + Write>(
+    mut babel: Babel<T>,
+    neighbors: &[(LocalIdentity, String)],
+) -> Result<(), Error> {
     babel.start_connection()?;
 
     trace!("Getting routes");
@@ -262,7 +265,6 @@ ok\n";
 
     #[test]
     fn test_tw_calls() {
-
         // Mock babel_monitor
         let mut bm_stream = SharedMockStream::new();
 
@@ -279,6 +281,13 @@ ok\n";
             })
         }));
 
+        watch(Babel::new(bm_stream), &[]).unwrap();
+    }
+
+    #[test]
+    fn test_on_arbitrary_socket() {
+        let mut bm_stream =
+            TcpStream::connect::<SocketAddr>("[::1]:9001".parse().unwrap()).unwrap();
         watch(Babel::new(bm_stream), &[]).unwrap();
     }
 }
