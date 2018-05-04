@@ -110,6 +110,7 @@ impl<T: Read + Write> Babel<T> {
 
     fn command(&mut self, cmd: &str) -> Result<String, Error> {
         self.stream.write_all(format!("{}\n", cmd).as_bytes())?;
+        self.stream.flush();
         println!("Sent '{}' to babel", cmd);
         match self.read_babel() {
             Ok(out) => Ok(out),

@@ -211,6 +211,7 @@ pub fn watch<T: Read + Write>(
 #[cfg(test)]
 mod tests {
     extern crate mockstream;
+    extern crate env_logger;
 
     use super::*;
 
@@ -286,6 +287,7 @@ ok\n";
 
     #[test]
     fn test_on_arbitrary_socket() {
+        env_logger::init();
         let mut bm_stream =
             TcpStream::connect::<SocketAddr>("[::1]:9001".parse().unwrap()).unwrap();
         watch(Babel::new(bm_stream), &[]).unwrap();
