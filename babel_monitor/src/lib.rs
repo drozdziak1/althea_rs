@@ -1,3 +1,4 @@
+extern crate bufstream;
 #[macro_use]
 extern crate failure;
 extern crate ip_network;
@@ -6,14 +7,14 @@ extern crate log;
 extern crate mockstream;
 
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, Read, Write};
+use std::iter::Iterator;
 use std::net::IpAddr;
-use std::net::TcpStream;
 use std::str;
 
+use bufstream::BufStream;
 use failure::Error;
 use ip_network::IpNetwork;
-use mockstream::SharedMockStream;
 
 #[derive(Debug, Fail)]
 pub enum BabelMonitorError {
@@ -23,8 +24,10 @@ pub enum BabelMonitorError {
     InvalidPreamble(String),
     #[fail(display = "Could not find local fee in '{}'", _0)]
     LocalFeeNotFound(String),
-    #[fail(display = "Last Babel command failed with output:\n{}", _0)]
-    CommandFailed(String),
+    #[fail(display = "Command '{}' failed. {}", _0, _1)]
+    CommandFailed(String, String),
+    #[fail(display = "Erroneous Babel output:\n{}", _0)]
+    ReadFailed(String),
 }
 
 use BabelMonitorError::*;
@@ -45,11 +48,8 @@ fn find_babel_val(val: &str, line: &str) -> Result<String, Error> {
 }
 
 fn is_terminator(line: &String) -> bool {
-    line == "ok" || line == "no" || line == "bad"
-}
-
-fn positive_termination(message: &String) -> bool {
-    message.contains("\nok\n")
+    trace!("checking for terminator in line: '{}'", line);
+    line.contains("ok") || line.contains("no") || line.contains("bad")
 }
 
 #[derive(Debug)]
@@ -78,14 +78,19 @@ pub struct Neighbor {
     pub cost: u16,
 }
 
-impl Babel for TcpStream {}
-impl Babel for SharedMockStream {}
+pub struct Babel<T: Read + Write> {
+    stream: BufStream<T>,
+}
 
-pub trait Babel: Read + Write {
+impl<T: Read + Write> Babel<T> {
+
+    pub fn new(stream: T) -> Babel<T> {
+        Babel { stream: BufStream::new(stream) }
+    }
+
     fn read_babel(&mut self) -> Result<String, Error> {
-        let mut reader = BufReader::new(self);
         let mut ret = String::new();
-        for line in reader.by_ref().lines() {
+        for line in Read::by_ref(&mut self.stream).lines() {
             let line = &line?;
             ret.push_str(line);
             ret.push_str("\n");
@@ -93,29 +98,30 @@ pub trait Babel: Read + Write {
                 break;
             }
         }
-        trace!("babel returned {}", ret);
+
+        println!("babel returned\n{}", ret);
+
         if ret.ends_with("ok\n") {
             Ok(ret)
         } else {
-            Err(CommandFailed(ret).into())
+            Err(ReadFailed(ret).into())
         }
     }
 
-    fn write_babel(&mut self, command: &str) -> Result<(), Error> {
-        self.write_all(command.as_bytes())?;
-        trace!("sent {} to babel", command);
-        Ok(())
+    fn command(&mut self, cmd: &str) -> Result<String, Error> {
+        self.stream.write_all(format!("{}\n", cmd).as_bytes())?;
+        println!("Sent '{}' to babel", cmd);
+        match self.read_babel() {
+            Ok(out) => Ok(out),
+            Err(e) => Err(CommandFailed(String::from(cmd), e.to_string()).into()),
+        }
     }
-}
 
-impl Babel {
     // Consumes the automated Preamble and validates configuration api version
     pub fn start_connection(&mut self) -> Result<(), Error> {
-        trace!("About to get the preamble");
         let preamble = self.read_babel()?;
-        trace!("Got the preamble: {}", preamble);
         // Note you have changed the config interface, bump to 1.1 in babel
-        if preamble.contains("ALTHEA 0.1") && positive_termination(&preamble) {
+        if preamble.contains("ALTHEA 0.1") {
             info!("Attached OK to Babel with preamble: {}", preamble);
             return Ok(());
         } else {
@@ -124,9 +130,7 @@ impl Babel {
     }
 
     pub fn local_fee(&mut self) -> Result<u32, Error> {
-        self.write_babel("dump\n")?;
-
-        let babel_output = self.read_babel()?;
+        let babel_output = self.command("dump")?;
         let fee_entry = match babel_output.split("\n").nth(0) {
             Some(entry) => entry,
             // Even an empty string wouldn't yield None
@@ -143,35 +147,31 @@ impl Babel {
     }
 
     pub fn monitor(&mut self, iface: &str) -> Result<(), Error> {
-        let commmand = format!("interface {} \n", iface);
-        self.write_babel(&commmand)?;
-        let _ = self.read_babel()?;
+        let _ = self.command(&format!("interface {}", iface))?;
         info!("Babel started monitoring: {}", iface);
         Ok(())
     }
 
     pub fn redistribute_ip(&mut self, ip: &IpAddr, allow: bool) -> Result<(), Error> {
         let commmand = format!(
-            "redistribute ip {}/128 {}\n",
+            "redistribute ip {}/128 {}",
             ip,
             if allow { "allow" } else { "deny" }
-        );
-        self.write_babel(&commmand)?;
+            );
+        self.command(&commmand)?;
         let _ = self.read_babel()?;
         Ok(())
     }
 
     pub fn unmonitor(&mut self, iface: &str) -> Result<(), Error> {
-        let commmand = format!("unmonitor {}\n", iface);
-        self.write_babel(&commmand)?;
+        self.command(&format!("unmonitor {}\n", iface))?;
         let _ = self.read_babel()?;
         Ok(())
     }
 
     pub fn parse_neighs(&mut self) -> Result<VecDeque<Neighbor>, Error> {
         let mut vector: VecDeque<Neighbor> = VecDeque::with_capacity(5);
-        self.write_babel("dump\n")?;
-        for entry in self.read_babel()?.split("\n") {
+        for entry in self.command("dump")?.split("\n") {
             if entry.contains("add neighbour") {
                 vector.push_back(Neighbor {
                     id: find_babel_val("neighbour", entry)?,
@@ -190,8 +190,7 @@ impl Babel {
 
     pub fn parse_routes(&mut self) -> Result<VecDeque<Route>, Error> {
         let mut vector: VecDeque<Route> = VecDeque::with_capacity(20);
-        self.write_babel("dump\n")?;
-        let babel_out = self.read_babel()?;
+        let babel_out = self.command("dump")?;
         trace!("Got from babel dump: {}", babel_out);
 
         for entry in babel_out.split("\n") {
@@ -218,6 +217,7 @@ impl Babel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mockstream::SharedMockStream;
     static TABLE: &'static str =
 "local fee 1024\n\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\
 \u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\
@@ -264,18 +264,11 @@ ok\n\u{0}\u{0}";
 
     static PRICE_LINE: &'static str = "local price 1024";
 
-    /*fn real_babel_basic() {
-      let mut b1 = Babel {stream: NetStream::Tcp(TcpStream::connect("::1:8080").unwrap())};
-      assert_eq!(b1.start_connection(), true);
-      assert_eq!(b1.write("dump\n"), true);
-      println!("{:?}", b1.read());
-      }*/
-
     #[test]
     fn mock_connect() {
         let mut s = SharedMockStream::new();
         s.push_bytes_to_read(PREAMBLE.as_bytes());
-        let b: &mut Babel = &mut s;
+        let mut b = Babel::new(s);
         b.start_connection().unwrap()
     }
 
@@ -292,13 +285,13 @@ ok\n\u{0}\u{0}";
         assert_eq!(
             find_babel_val("prefix", XROUTE_LINE).unwrap(),
             "10.28.119.131/32"
-        );
+            );
         assert_eq!(find_babel_val("route", ROUTE_LINE).unwrap(), "14f06d8");
         assert_eq!(find_babel_val("if", ROUTE_LINE).unwrap(), "wlan0");
         assert_eq!(
             find_babel_val("via", ROUTE_LINE).unwrap(),
             "fe80::e9d0:498f:6c61:be29"
-        );
+            );
         assert_eq!(find_babel_val("reach", NEIGH_LINE).unwrap(), "ffff");
         assert_eq!(find_babel_val("rxcost", NEIGH_LINE).unwrap(), "256");
         assert_eq!(find_babel_val("rtt", NEIGH_LINE).unwrap(), "29.264");
@@ -311,10 +304,8 @@ ok\n\u{0}\u{0}";
     fn neigh_parse() {
         let mut s = SharedMockStream::new();
         s.push_bytes_to_read(TABLE.as_bytes());
-        s.write(b"dump\n").unwrap();
-        let b: &mut Babel = &mut s;
+        let mut b = Babel::new(s);
         let neighs = b.parse_neighs().unwrap();
-        println!("{:?}", neighs);
         let neigh = neighs.get(0);
         assert!(neigh.is_some());
         let neigh = neigh.unwrap();
@@ -326,8 +317,7 @@ ok\n\u{0}\u{0}";
     fn route_parse() {
         let mut s = SharedMockStream::new();
         s.push_bytes_to_read(TABLE.as_bytes());
-        s.write(b"dump\n").unwrap();
-        let b: &mut Babel = &mut s;
+        let mut b = Babel::new(s);
 
         let routes = b.parse_routes().unwrap();
         assert_eq!(routes.len(), 4);
@@ -340,9 +330,36 @@ ok\n\u{0}\u{0}";
     fn local_fee_parse() {
         let mut s = SharedMockStream::new();
         s.push_bytes_to_read(TABLE.as_bytes());
-        s.write(b"dump\n").unwrap();
-        let b: &mut Babel = &mut s;
 
+        let mut b = Babel::new(s);
         assert_eq!(b.local_fee().unwrap(), 1024);
+    }
+
+    #[test]
+    fn multiple_babel_outputs_in_stream() {
+        let mut s = SharedMockStream::new();
+        s.push_bytes_to_read(PREAMBLE.as_bytes());
+        s.push_bytes_to_read(TABLE.as_bytes());
+        s.push_bytes_to_read(b"ok\n");
+
+        let mut b = Babel::new(s);
+        b.start_connection().unwrap();
+
+        let routes = b.parse_routes().unwrap();
+        assert_eq!(routes.len(), 4);
+
+        let route = routes.get(0).unwrap();
+        assert_eq!(route.price, 3072);
+
+        b.command("interface wg0").unwrap();
+    }
+
+    #[test]
+    fn only_ok_in_output() {
+        let mut s = SharedMockStream::new();
+        s.push_bytes_to_read(b"ok\n");
+
+        let mut b = Babel::new(s);
+        b.command("interface wg0").unwrap();
     }
 }
