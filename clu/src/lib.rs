@@ -71,14 +71,14 @@ fn validate_mesh_ip(ip: &IpAddr) -> bool {
 }
 
 fn linux_setup_exit_tunnel(config: Arc<RwLock<settings::RitaSettingsStruct>>) -> Result<(), Error> {
-    let details = config.get_exit_client_details().clone();
+    let details = config.get_current_exit_details().clone();
 
     KI.setup_wg_if_named("wg_exit").unwrap();
     KI.set_client_exit_tunnel_config(
-        SocketAddr::new(config.get_exit_client().exit_ip, details.wg_exit_port),
+        SocketAddr::new(config.get_current_exit().exit_ip, details.wg_exit_port),
         details.wg_public_key,
         config.get_network().wg_private_key_path.clone(),
-        config.get_exit_client().wg_listen_port,
+        config.get_current_exit().wg_listen_port,
         details.own_internal_ip,
         details.netmask,
     )?;
@@ -95,17 +95,17 @@ fn linux_setup_exit_tunnel(config: Arc<RwLock<settings::RitaSettingsStruct>>) ->
 fn request_own_exit_ip(
     config: Arc<RwLock<settings::RitaSettingsStruct>>,
 ) -> Result<ExitClientDetails, Error> {
-    let exit_server = config.get_exit_client().exit_ip;
+    let exit_server = config.get_current_exit().exit_ip;
     let ident = althea_types::ExitClientIdentity {
         global: config.get_identity(),
-        wg_port: config.get_exit_client().wg_listen_port.clone(),
-        reg_details: config.get_exit_client().reg_details.clone(),
+        wg_port: config.get_current_exit().wg_listen_port.clone(),
+        reg_details: config.get_current_exit().reg_details.clone(),
     };
 
     let endpoint = format!(
         "http://[{}]:{}/setup",
         exit_server,
-        config.get_exit_client().exit_registration_port
+        config.get_current_exit().exit_registration_port
     );
 
     trace!("Sending exit setup request to {:?}", endpoint);
@@ -172,8 +172,8 @@ fn linux_init(config: Arc<RwLock<settings::RitaSettingsStruct>>) -> Result<(), E
     )?;
 
     thread::spawn(move || loop {
-        if config.exit_client_is_set() {
-            let our_exit_ip = config.get_exit_client().exit_ip.clone();
+        if config.current_exit_is_set() {
+            let our_exit_ip = config.get_current_exit().exit_ip.clone();
 
             assert!(our_exit_ip.is_ipv6());
             assert!(!our_exit_ip.is_unspecified());
@@ -182,7 +182,7 @@ fn linux_init(config: Arc<RwLock<settings::RitaSettingsStruct>>) -> Result<(), E
 
             match details {
                 Ok(details) => {
-                    config.init_exit_client_details(details);
+                    config.init_current_exit_details(details);
 
                     linux_setup_exit_tunnel(config.clone()).expect("can't set exit tunnel up!");
 

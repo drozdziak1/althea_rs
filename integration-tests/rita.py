@@ -42,6 +42,16 @@ exit_settings = {
     }
 }
 
+exit_settings2 = {
+    "exit_ip": "fd00::5",
+    "exit_registration_port": 4875,
+    "wg_listen_port": 59999,
+    "reg_details": {
+        "zip_code": "4321",
+        "email": "4321@gmail.com"
+    }
+}
+
 def exec_or_exit(command, blocking=True, delay=0.01):
     """
     Executes a command and terminates the program if it fails.
@@ -229,7 +239,12 @@ def start_rita(node):
         )
     time.sleep(0.2)
     os.system("ip netns exec netlab-{id} curl -XPOST 127.0.0.1:4877/settings -H 'Content-Type: application/json' -i -d '{data}'"
-              .format(id=id, data=json.dumps({"exit_client": exit_settings})))
+              .format(id=id, data=json.dumps({
+                  "exits": [
+                      exit_settings,
+                      exit_settings2,
+                      ],
+                  })))
 
 def start_rita_exit(node):
     id = node.id
