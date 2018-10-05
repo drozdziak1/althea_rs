@@ -84,8 +84,8 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, clients: Vec<Identity>) -> Re
     let routes = babel.parse_routes()?;
     info!("Got routes: {:?}", routes);
 
-    let mut destinations = HashMap::new();
-    destinations.insert(
+    let mut ip2price = HashMap::new();
+    ip2price.insert(
         match SETTING.get_network().mesh_ip {
             Some(ip) => ip,
             None => bail!("No mesh IP configured yet"),
@@ -93,9 +93,9 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, clients: Vec<Identity>) -> Re
         Int256::from(babel.local_fee().unwrap()),
     );
 
-    let mut identities: HashMap<IpAddr, Identity> = HashMap::new();
+    let mut ip2id: HashMap<IpAddr, Identity> = HashMap::new();
     for ident in &clients {
-        identities.insert(ident.mesh_ip, ident.clone());
+        ip2id.insert(ident.mesh_ip, ident.clone());
     }
 
     for route in &routes {
@@ -103,7 +103,7 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, clients: Vec<Identity>) -> Re
         if let IpNetwork::V6(ref ip) = route.prefix {
             // Only host addresses and installed routes
             if ip.prefix() == 128 && route.installed {
-                destinations.insert(IpAddr::V6(ip.ip()), Int256::from(route.price));
+                ip2price.insert(IpAddr::V6(ip.ip()), Int256::from(route.price));
             }
         }
     }
@@ -147,26 +147,27 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, clients: Vec<Identity>) -> Re
     let mut debts = HashMap::new();
 
     // Setup the debts table
-    for (_, ident) in identities.clone() {
+    for (_, ident) in ip2id.clone() {
         debts.insert(ident, Int256::from(0));
     }
 
-    let price = SETTING.get_exit_network().exit_price;
+    // This exit's price
+    let our_price = SETTING.get_exit_network().exit_price;
 
     for (ip, bytes) in input_counters {
-        let state = (identities.get(&ip), destinations.get(&ip));
+        let state = (ip2id.get(&ip), ip2price.get(&ip));
         match state {
-            (Some(id), Some(_dest)) => match debts.get_mut(&id) {
+            (Some(id), Some(_price)) => match debts.get_mut(&id) {
                 Some(debt) => {
-                    *debt -= price * bytes;
+                    *debt -= our_price * bytes;
                 }
-                // debts is generated from identities, this should be impossible
+                // debts is generated from ip2id, this should be impossible
                 None => warn!("No debts entry for input entry id {:?}", id),
             },
             // this can be caused by a peer that has not yet formed a babel route
             (Some(id), None) => warn!("We have an id {:?} but not destination", id),
             // if we have a babel route we should have a peer it's possible we have a mesh client sneaking in?
-            (None, Some(dest)) => warn!("We have a destination {:?} but no id", dest),
+            (None, Some(price)) => warn!("We have a price {:?} but no id", price),
             // dead entry?
             (None, None) => warn!("We have no id or dest for an input counter on {:?}", ip),
         }
@@ -175,19 +176,19 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, clients: Vec<Identity>) -> Re
     trace!("Collated input exit debts: {:?}", debts);
 
     for (ip, bytes) in output_counters {
-        let state = (identities.get(&ip), destinations.get(&ip));
+        let state = (ip2id.get(&ip), ip2price.get(&ip));
         match state {
-            (Some(id), Some(dest)) => match debts.get_mut(&id) {
+            (Some(id), Some(price)) => match debts.get_mut(&id) {
                 Some(debt) => {
-                    *debt -= (dest.clone() + price) * bytes;
+                    *debt -= (price.clone() + our_price) * bytes;
                 }
                 // debts is generated from identities, this should be impossible
                 None => warn!("No debts entry for input entry id {:?}", id),
             },
             // this can be caused by a peer that has not yet formed a babel route
-            (Some(id), None) => warn!("We have an id {:?} but not destination", id),
+            (Some(id), None) => warn!("We have an id {:?} but not a price", id),
             // if we have a babel route we should have a peer it's possible we have a mesh client sneaking in?
-            (None, Some(dest)) => warn!("We have a destination {:?} but no id", dest),
+            (None, Some(price)) => warn!("We have a price {:?} but no id", price),
             // dead entry?
             (None, None) => warn!("We have no id or dest for an input counter on {:?}", ip),
         }
