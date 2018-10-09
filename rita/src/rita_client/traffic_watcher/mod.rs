@@ -101,7 +101,7 @@ pub fn watch<T: Read + Write>(
     let input = input.total_bytes();
     let output = output.total_bytes();
 
-    trace!("got {:?} from client exit counters", (&input, &output));
+    trace!("got {:#?} from client exit counters", (&input, &output));
 
     let mut owes: Int256 = Int256::from(0);
 

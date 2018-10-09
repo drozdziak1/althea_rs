@@ -145,7 +145,7 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, neighbors: &Vec<Neighbor>) ->
             return Err(e);
         }
     };
-    trace!("Got input counters: {:?}", input_counters);
+    trace!("Got input counters: {:#?}", input_counters);
 
     trace!("Getting ouput counters");
     let output_counters = match KI.read_counters(&FilterTarget::Output) {
@@ -158,7 +158,7 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, neighbors: &Vec<Neighbor>) ->
             return Err(e);
         }
     };
-    trace!("Got output counters: {:?}", output_counters);
+    trace!("Got output counters: {:#?}", output_counters);
 
     trace!("Getting fwd counters");
     let fwd_input_counters = match KI.read_counters(&FilterTarget::ForwardInput) {
@@ -182,8 +182,8 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, neighbors: &Vec<Neighbor>) ->
         }
     };
 
-    info!(
-        "Got fwd counters: {:?}",
+    trace!(
+        "Got fwd counters: {:#?}",
         (&fwd_input_counters, &fwd_output_counters)
     );
 
@@ -206,8 +206,8 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, neighbors: &Vec<Neighbor>) ->
         *total_output_counters.entry(k).or_insert(0) += v
     }
 
-    info!("Got final input counters: {:?}", total_input_counters);
-    info!("Got final output counters: {:?}", total_output_counters);
+    trace!("Got final input counters: {:#?}", total_input_counters);
+    trace!("Got final output counters: {:#?}", total_output_counters);
     let mut total_in: u64 = 0;
     for entry in total_input_counters.iter() {
         let input = entry.1;
@@ -256,7 +256,7 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, neighbors: &Vec<Neighbor>) ->
         }
     }
 
-    trace!("Collated flow debts: {:?}", debts);
+    trace!("Collated flow debts: {:#?}", debts);
 
     // We take the destination ip and output interface and then look up what local neighbor
     // to credit that debt from us using the interface (since tunnel interfaces are unique to a neighbor)
@@ -281,7 +281,7 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, neighbors: &Vec<Neighbor>) ->
         }
     }
 
-    trace!("Collated total debts: {:?}", debts);
+    trace!("Collated total debts: {:#?}", debts);
 
     for (from, amount) in debts {
         trace!("collated debt for {} is {}", from.mesh_ip, amount);

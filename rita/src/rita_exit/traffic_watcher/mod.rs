@@ -129,14 +129,14 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, clients: Vec<Identity>) -> Re
         }
     };
 
-    trace!("input exit counters: {:?}", input_counters);
+    trace!("input exit counters: {:#?}", input_counters);
     let mut total_in: u64 = 0;
     for entry in input_counters.iter() {
         let input = entry.1;
         total_in += input;
     }
     info!("Total Exit input of {} bytes this round", total_in);
-    trace!("output exit counters: {:?}", output_counters);
+    trace!("output exit counters: {:#?}", output_counters);
     let mut total_out: u64 = 0;
     for entry in output_counters.iter() {
         let output = entry.1;
@@ -173,7 +173,7 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, clients: Vec<Identity>) -> Re
         }
     }
 
-    trace!("Collated input exit debts: {:?}", debts);
+    trace!("Collated input exit debts: {:#?}", debts);
 
     for (ip, bytes) in output_counters {
         let state = (ip2id.get(&ip), ip2price.get(&ip));
@@ -194,7 +194,7 @@ pub fn watch<T: Read + Write>(mut babel: Babel<T>, clients: Vec<Identity>) -> Re
         }
     }
 
-    trace!("Collated total exit debts: {:?}", debts);
+    trace!("Collated total exit debts: {:#?}", debts);
 
     info!("Computed exit debts for {:?} clients", debts.len());
     let mut total_income = Int256::zero();
