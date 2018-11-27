@@ -26,6 +26,7 @@ mod network_endpoints;
 mod schema;
 
 use actix_web::{http::Method, server, App};
+use clarity::Address;
 use diesel::{connection::Connection, sqlite::SqliteConnection};
 use dotenv::dotenv;
 use env_logger::Builder;
@@ -57,6 +58,13 @@ fn main() {
 
     info!("Althea Bounty Hunter {}", env!("CARGO_PKG_VERSION"));
 
+    let mut addr = Address::from([0u8; 20]);
+
+    let ser = serde_json::to_string::<Address>(&addr).unwrap();
+    info!("Ser:\n{}", ser);
+
+    info!("De:\n{:#x}", serde_json::from_str::<Address>(&ser).unwrap());
+
     let system = actix::System::new("main");
 
     dotenv().ok();
@@ -81,7 +89,7 @@ fn main() {
                             Method::POST,
                             handle_upload_channel_state,
                         ).route(
-                            "/get_channel_state/{ch_id}",
+                            "/get_channel_state/{address}",
                             Method::GET,
                             handle_get_channel_state,
                         )

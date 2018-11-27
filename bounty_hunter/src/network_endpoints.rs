@@ -1,4 +1,5 @@
 use actix_web::{http::StatusCode, HttpRequest, HttpResponse, Json};
+use clarity::Address;
 use diesel::prelude::*;
 use failure::Error;
 use futures::{future, Future};
@@ -210,21 +211,39 @@ pub fn handle_upload_channel_state(
 /// Query for the bounty hunter channel state from a requested time period
 pub fn handle_get_channel_state(
     _req: HttpRequest,
-    ch_id: actix_web::Path<Uint256>,
+    address: String,
 ) -> Box<Future<Item = HttpResponse, Error = Error>> {
-    let ch_id = ch_id.into_inner();
-    trace!("Hit /get_channel_state/{}", ch_id);
+    trace!("Hit /get_channel_state/{}", address);
+    let address = match address.clone().parse::<Address>() {
+        Ok(a) => a,
+        Err(e) => {
+            let mut err_ret = HashMap::new();
+            let msg = format!("Could not parse {:?} as an Address", address);
+            warn!("{}: {}", msg, e);
 
-    let matching_record = match states
-        .filter(channel_id.eq(ch_id.to_bytes_be()))
-        .load::<ChannelStateRecord>(&*DB_CONN.lock().unwrap())
+            err_ret.insert("error", msg);
+
+            return Box::new(future::ok(
+                HttpResponse::new(StatusCode::BAD_REQUEST)
+                    .into_builder()
+                    .json(err_ret),
+            ));
+        }
+    };
+
+    let matching_records = match states
+        .filter(
+            address_a
+                .eq(address.as_bytes())
+                .or(address_b.eq(address.as_bytes())),
+        ).load::<ChannelStateRecord>(&*DB_CONN.lock().unwrap())
     {
-        Ok(value) => value,
+        Ok(values) => values,
         Err(e) => {
             let mut err_ret = HashMap::new();
             let msg = format!("Could not retrieve record from database");
 
-            warn!("Channel {}: {}: {}", ch_id, msg, e);
+            warn!("Address {:#x}: {}: {}", address, msg, e);
 
             err_ret.insert("error".to_owned(), msg);
 
@@ -236,12 +255,15 @@ pub fn handle_get_channel_state(
         }
     };
 
-    debug!("Channel {}: query result: {:#?}", ch_id, matching_record);
+    debug!(
+        "Address {:#x}: query result: {:#?}",
+        address, matching_records
+    );
 
     let mut ok_ret = HashMap::new();
     ok_ret.insert(
         "record".to_owned(),
-        matching_record
+        matching_records
             .into_iter()
             .map(|record| record.to_state().unwrap())
             .collect::<Vec<ChannelState>>(),

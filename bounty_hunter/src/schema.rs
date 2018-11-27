@@ -1,6 +1,8 @@
 table! {
     states (id) {
         id -> Bigint,
+        address_a -> Binary,
+        address_b -> Binary,
         channel_id -> Binary,
         nonce -> Binary,
         balance_a -> Binary,
