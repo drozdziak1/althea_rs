@@ -35,6 +35,7 @@ use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 
 use std::{env, path, process, sync::Mutex};
 
+use models::ChannelState;
 use network_endpoints::{handle_get_channel_state, handle_upload_channel_state};
 
 lazy_static! {
@@ -58,12 +59,16 @@ fn main() {
 
     info!("Althea Bounty Hunter {}", env!("CARGO_PKG_VERSION"));
 
-    let mut addr = Address::from([0u8; 20]);
+    let state = ChannelState::default();
+    info!("state:\n{:#?}", state);
 
-    let ser = serde_json::to_string::<Address>(&addr).unwrap();
-    info!("Ser:\n{}", ser);
+    let ser = serde_json::to_string_pretty(&state).unwrap();
+    info!("ser:\n{}", ser);
 
-    info!("De:\n{:#x}", serde_json::from_str::<Address>(&ser).unwrap());
+    let de: ChannelState = serde_json::from_str(&ser).unwrap();
+    info!("de:\n{:#?}", de);
+
+    info!("de == state: {}", de == state);
 
     let system = actix::System::new("main");
 

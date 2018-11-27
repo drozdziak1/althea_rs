@@ -1,9 +1,9 @@
 -- Your SQL goes here
 CREATE TABLE states (
   id INTEGER NOT NULL PRIMARY KEY,
+  channel_id BLOB NOT NULL UNIQUE,
   address_a BLOB NOT NULL,
   address_b BLOB NOT NULL,
-  channel_id BLOB NOT NULL UNIQUE,
   nonce BLOB NOT NULL,
   balance_a BLOB NOT NULL,
   balance_b BLOB NOT NULL,

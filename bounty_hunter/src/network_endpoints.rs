@@ -76,7 +76,7 @@ pub fn handle_upload_channel_state(
     /*
      * DO NOT "OPTIMIZE" `state_nonce_fixed` INTO A VEC. Fixed-length is critical for ordering to
      * work properly within the database (blob ordering in SQLite is analogous to string
-     * ordering - string "9" goes BEFORE string "10", but fixed-size would make this comparison
+     * ordering - string "9" goes AFTER string "10", but fixed-size would make this comparison
      * more like "09" vs. "10" which checks out).
      *
      * SCREWED UP ORDERING FOR NONCE/SEQNO VARIABLES MEANS HIDEOUS ERRORS AND REPLAY ATTACK
@@ -211,25 +211,10 @@ pub fn handle_upload_channel_state(
 /// Query for the bounty hunter channel state from a requested time period
 pub fn handle_get_channel_state(
     _req: HttpRequest,
-    address: String,
+    address: actix_web::Path<Address>,
 ) -> Box<Future<Item = HttpResponse, Error = Error>> {
-    trace!("Hit /get_channel_state/{}", address);
-    let address = match address.clone().parse::<Address>() {
-        Ok(a) => a,
-        Err(e) => {
-            let mut err_ret = HashMap::new();
-            let msg = format!("Could not parse {:?} as an Address", address);
-            warn!("{}: {}", msg, e);
-
-            err_ret.insert("error", msg);
-
-            return Box::new(future::ok(
-                HttpResponse::new(StatusCode::BAD_REQUEST)
-                    .into_builder()
-                    .json(err_ret),
-            ));
-        }
-    };
+    let address = address.into_inner();
+    trace!("Hit /get_channel_state/{:#x}", address);
 
     let matching_records = match states
         .filter(

@@ -112,8 +112,8 @@ impl ChannelStateRecord {
     pub fn to_state(self) -> Result<ChannelState, Error> {
         let mut state = ChannelState {
             channel_id: Uint256::from_bytes_be(&self.channel_id),
-            address_a: self.address_a.as_slice().into(),
-            address_b: self.address_b.as_slice().into(),
+            address_a: Address::from_slice(self.address_a.as_slice())?,
+            address_b: Address::from_slice(self.address_b.as_slice())?,
             nonce: Uint256::from_bytes_be(&self.nonce),
 
             balance_a: Uint256::from_bytes_be(&self.balance_a),
